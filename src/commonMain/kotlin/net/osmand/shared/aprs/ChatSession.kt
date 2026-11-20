@@ -3,6 +3,14 @@ package net.osmand.shared.aprs
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.Flow
+
+interface AprsMessageTransport {
+    val messages: Flow<AprsMessage>
+    fun canSend(): Boolean
+    suspend fun sendMessage(account: String, recipient: String, text: String, id: String)
+    suspend fun acknowledge(account: String, recipient: String, id: String)
+}
 
 data class PendingChat(val row: Long, val peer: String, val body: String, val wireId: String)
 
@@ -17,7 +25,7 @@ interface ChatRepository {
 /** Reliable processing lives outside the map/window lifecycle. Does not connect automatically. */
 class ChatSession(
     private val account: String,
-    private val client: AprsIsClient,
+    private val client: AprsMessageTransport,
     private val repository: ChatRepository,
     parent: CoroutineScope,
     private val error: (String) -> Unit = {},
@@ -29,7 +37,7 @@ class ChatSession(
             client.messages.collect { message ->
                 try {
                     repository.receive(account, message)
-                    if (message.id != null && client.state.value == AprsConnectionState.VERIFIED)
+                    if (message.id != null && client.canSend())
                         client.acknowledge(account, message.sender, message.id)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { error("Unable to save or acknowledge an incoming message") }
@@ -37,7 +45,7 @@ class ChatSession(
         }
         scope.launch {
             while (isActive) {
-                if (client.state.value == AprsConnectionState.VERIFIED) {
+                if (client.canSend()) {
                     try {
                         for (message in repository.pending(account)) {
                             repository.attempted(message.row)

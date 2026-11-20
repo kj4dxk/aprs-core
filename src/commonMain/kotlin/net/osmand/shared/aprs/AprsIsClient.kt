@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
@@ -33,7 +35,7 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
 enum class AprsConnectionState { STOPPED, CONNECTING, RECEIVING, VERIFIED, RECONNECTING }
 
 /** APRS-IS transport shared by Android and future iOS clients. No connection until start(). */
-class AprsIsClient {
+class AprsIsClient : AprsMessageTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutableState = MutableStateFlow(AprsConnectionState.STOPPED)
     val state: StateFlow<AprsConnectionState> = mutableState
@@ -42,17 +44,20 @@ class AprsIsClient {
     private val fix = MutableStateFlow<AprsFix?>(null)
     private var job: Job? = null
     private val incoming = Channel<AprsMessage>(64)
-    val messages = incoming.receiveAsFlow()
+    override val messages = incoming.receiveAsFlow()
+    override fun canSend() = state.value==AprsConnectionState.VERIFIED
+    private val rawIncoming=MutableSharedFlow<String>(extraBufferCapacity=128)
+    val packets=rawIncoming.asSharedFlow()
     private class Sender(val callsign: String, val write: suspend (String) -> Unit)
     private val sender = MutableStateFlow<Sender?>(null)
 
-    suspend fun sendMessage(account: String, recipient: String, text: String, id: String) {
+    override suspend fun sendMessage(account: String, recipient: String, text: String, id: String) {
         val active = checkNotNull(sender.value) { "Not connected" }
         check(active.callsign == account)
         active.write(AprsMessages.packet(account, recipient, text, id))
     }
 
-    suspend fun acknowledge(account: String, recipient: String, id: String) {
+    override suspend fun acknowledge(account: String, recipient: String, id: String) {
         val active = checkNotNull(sender.value) { "Not connected" }
         check(active.callsign == account)
         active.write(AprsMessages.ack(account, recipient, id))
@@ -69,6 +74,16 @@ class AprsIsClient {
         val active=checkNotNull(sender.value) { "Not connected" }
         check(active.callsign == account)
         active.write(packet)
+    }
+
+    /** The caller supplies a policy-approved RF packet with this IGate's q construct. */
+    suspend fun sendGated(account: String, line: String) {
+        val packet=requireNotNull(RadioPacket.parse(line))
+        require(packet.path.takeLast(2) in listOf(listOf("qAR",account),listOf("qAO",account)))
+        require(packet.path.dropLast(2).none {it.startsWith('q') || it.trimEnd('*') in listOf("TCPIP","TCPXX","NOGATE","RFONLY")})
+        require(!packet.payload.startsWith('}') && !packet.payload.startsWith('?'))
+        val active=checkNotNull(sender.value);check(active.callsign==account)
+        active.write(line+"\r\n")
     }
 
     fun start(config: AprsIsConfig) {
@@ -152,6 +167,7 @@ class AprsIsClient {
                                 mutableState.value = if (verified.value) AprsConnectionState.VERIFIED else AprsConnectionState.RECEIVING
                             }
                         } else {
+                            rawIncoming.emit(line)
                             AprsMessages.parse(line)?.takeIf { it.recipient == config.callsign && it.sender != config.callsign }
                                 ?.let { incoming.send(it) }
                             storeLock.withLock { store.receive(line, Clock.System.now().toEpochMilliseconds()) }

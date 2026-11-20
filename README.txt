@@ -22,3 +22,8 @@ position/object/item/status formatting and adaptive scheduling; NmeaPosition
 decodes checksummed RMC/GGA/GLL fixes. AprsIsClient.sendBroadcast uses the
 verified session. New tests are prepared but NOT RUN. No APRSIS32 source copied.
 Platform GPS I/O, preferences, persistence and lifecycle remain in the host app.
+
+Unbuilt radio additions (2026-11-20): RadioPacket/Ax25Ui, streaming KISS and AGW
+codecs, TNC monitor parsing, RadioRouter digipeater and IGate policy. ChatSession
+now accepts AprsMessageTransport for shared RF/IS chat handling. AprsIsClient
+remains compatible for Android callers. New regression source is NOT RUN.
