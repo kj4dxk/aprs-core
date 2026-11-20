@@ -60,6 +60,17 @@ class AprsIsClient {
 
     fun updateFix(value: AprsFix) { fix.value = value }
 
+    /** Send a formatted report on the current verified connection, never a saved offline beacon. */
+    suspend fun sendBroadcast(account: String, packet: String) {
+        require(packet.endsWith("\r\n") && packet.length <= 512)
+        val line=packet.dropLast(2)
+        require(line.all { it.code in 32..126 } && AprsProtocol.validCallsign(line.substringBefore('>')))
+        require(line.substringAfter('>').startsWith("APRS,TCPIP*:"))
+        val active=checkNotNull(sender.value) { "Not connected" }
+        check(active.callsign == account)
+        active.write(packet)
+    }
+
     fun start(config: AprsIsConfig) {
         stop()
         job = scope.launch {

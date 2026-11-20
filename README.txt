@@ -16,3 +16,9 @@ Protocol and application services contain no Android or desktop UI dependencies.
 Current scope: APRS-IS positions, verified beaconing, text/ACK/REJ/reply-ACK,
 bounded station cache, endpoint/identity parsing and durable-chat orchestration.
 Mic-E, ambiguous positions and full APRSIS32 parity remain future work.
+
+Unbuilt beaconing additions (2026-11-20): BeaconEngine implements APRS-IS
+position/object/item/status formatting and adaptive scheduling; NmeaPosition
+decodes checksummed RMC/GGA/GLL fixes. AprsIsClient.sendBroadcast uses the
+verified session. New tests are prepared but NOT RUN. No APRSIS32 source copied.
+Platform GPS I/O, preferences, persistence and lifecycle remain in the host app.
