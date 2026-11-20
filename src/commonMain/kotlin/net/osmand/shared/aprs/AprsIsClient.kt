@@ -20,11 +20,14 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
                         val latitude: Double, val longitude: Double,
                         val radiusKm: Int = 100, val beaconEnabled: Boolean = false,
                         val beaconIntervalMillis: Long = 120_000,
-                        val application: String = "APRSISOSM", val filterMode: String = "range", val customFilter: String = "") {
+                        val application: String = "APRSISOSM", val filterMode: String = "range", val customFilter: String = "",
+                        val fallbackServers: List<AprsEndpoint> = emptyList()) {
     init {
         AprsProtocol.login(callsign, passcode, AprsFilters.compose(callsign, latitude, longitude, radiusKm, filterMode, customFilter), application)
         require(host.isNotBlank() && host.length <= 253 && host.all { it.isLetterOrDigit() || it in ".-:" })
         require(port in 1..65535)
+        require(fallbackServers.size<=16)
+        fallbackServers.forEach {AprsEndpoint.parse(if(':' in it.host) "[${it.host}]:${it.port}" else "${it.host}:${it.port}")}
         require(!beaconEnabled || passcode != "-1")
         require(beaconIntervalMillis >= 60_000)
     }
@@ -39,6 +42,7 @@ class AprsIsClient : AprsMessageTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutableState = MutableStateFlow(AprsConnectionState.STOPPED)
     val state: StateFlow<AprsConnectionState> = mutableState
+    val activeEndpoint = MutableStateFlow<AprsEndpoint?>(null)
     private val mutableStations = MutableStateFlow<List<AprsStation>>(emptyList())
     val stations: StateFlow<List<AprsStation>> = mutableStations
     private val fix = MutableStateFlow<AprsFix?>(null)
@@ -92,10 +96,14 @@ class AprsIsClient : AprsMessageTransport {
             val store = AprsStationStore()
             val policy = AprsBeaconPolicy(config.beaconIntervalMillis)
             var backoff = 2_000L
+            val endpoints=(listOf(AprsEndpoint(config.host,config.port))+config.fallbackServers).distinct()
+            var attempt=0
             while (isActive) {
+                val endpoint=endpoints[attempt%endpoints.size]
+                activeEndpoint.value=endpoint
                 mutableState.value = AprsConnectionState.CONNECTING
                 try {
-                    session(config, store, policy)
+                    session(config.copy(host=endpoint.host,port=endpoint.port), store, policy)
                 } catch (_: TimeoutCancellationException) {
                     ensureActive()
                 } catch (cancelled: CancellationException) {
@@ -105,6 +113,7 @@ class AprsIsClient : AprsMessageTransport {
                 }
                 ensureActive()
                 mutableState.value = AprsConnectionState.RECONNECTING
+                attempt++
                 delay(backoff)
                 backoff = (backoff * 2).coerceAtMost(60_000)
             }
@@ -117,6 +126,7 @@ class AprsIsClient : AprsMessageTransport {
         job = null
         fix.value = null
         mutableState.value = AprsConnectionState.STOPPED
+        activeEndpoint.value = null
     }
 
     private suspend fun session(config: AprsIsConfig, store: AprsStationStore, policy: AprsBeaconPolicy) = coroutineScope {
