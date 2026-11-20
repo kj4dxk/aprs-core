@@ -40,6 +40,7 @@ class RadioRoutingTest {
     }
     @Test fun digiTransformsAndDupePathIndependence() {
         val router=RadioRouter("N0DIGI",RadioRules());val p=packet("N0CALL>APRS,WIDE2-2:>test")
+        assertNull(router.digipeat(packet("N0CALL>APRS,N0DIGI:>test"),emptyList()))
         val result=router.digipeat(p,listOf("WIDE2-2=WIDE2-1"))!!
         assertEquals(listOf("N0DIGI*","WIDE2-1"),result.path)
         assertNull(router.digipeat(result,listOf("WIDE2-1=")))

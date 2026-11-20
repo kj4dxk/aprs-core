@@ -52,6 +52,7 @@ class RadioRouter(private val ownCall: String, private val rules: RadioRules) {
         return null
     }
     fun digipeat(packet: RadioPacket, transforms: List<String>): RadioPacket? {
+        if(transforms.isEmpty()) return null
         if(packet.source==ownCall || packet.payload.startsWith('}') || blocked(packet,true) || packet.path.any {it.trimEnd('*')==ownCall}) return null
         val index=packet.usedHops;val alias=packet.path.getOrNull(index) ?: return null
         val transform=if(alias==ownCall) "" else transforms.firstOrNull {it.substringBefore('=')==alias}?.substringAfter('=') ?: return null
