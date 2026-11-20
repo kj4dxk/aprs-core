@@ -20,9 +20,9 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
                         val latitude: Double, val longitude: Double,
                         val radiusKm: Int = 100, val beaconEnabled: Boolean = false,
                         val beaconIntervalMillis: Long = 120_000,
-                        val application: String = "APRSISOSM") {
+                        val application: String = "APRSISOSM", val filterMode: String = "range", val customFilter: String = "") {
     init {
-        AprsProtocol.login(callsign, passcode, AprsProtocol.rangeFilter(latitude, longitude, radiusKm), application)
+        AprsProtocol.login(callsign, passcode, AprsFilters.compose(callsign, latitude, longitude, radiusKm, filterMode, customFilter), application)
         require(host.isNotBlank() && host.length <= 253 && host.all { it.isLetterOrDigit() || it in ".-:" })
         require(port in 1..65535)
         require(!beaconEnabled || passcode != "-1")
@@ -132,7 +132,7 @@ class AprsIsClient : AprsMessageTransport {
                 val banner = withTimeout(20_000) { input.readUTF8Line(512) }
                 check(banner?.startsWith("#") == true)
                 output.writeStringUtf8(AprsProtocol.login(config.callsign, config.passcode,
-                    AprsProtocol.rangeFilter(config.latitude, config.longitude, config.radiusKm) + " g/" + config.callsign,
+                    AprsFilters.compose(config.callsign, config.latitude, config.longitude, config.radiusKm, config.filterMode, config.customFilter),
                     config.application))
                 mutableState.value = AprsConnectionState.RECEIVING
                 val verified = MutableStateFlow(false)
