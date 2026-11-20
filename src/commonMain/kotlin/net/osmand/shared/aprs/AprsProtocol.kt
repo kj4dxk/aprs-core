@@ -121,13 +121,26 @@ object AprsProtocol {
 /** Bounded station memory; callers serialize access and publish immutable snapshots. */
 class AprsStationStore(private val maxStations: Int = 2000, private val ttlMillis: Long = 1_800_000) {
     private val stations = linkedMapOf<String, AprsStation>()
+    private val owners = mutableMapOf<String,String>()
     init { require(maxStations > 0 && ttlMillis > 0) }
     fun receive(line: String, nowMillis: Long) {
         expire(nowMillis)
+        val packet=RadioPacket.parse(line) ?: return
+        val body=packet.payload
+        val killed=when {
+            body.startsWith(';') && body.length>=11 && body[10]=='_'->body.substring(1,10).trim()
+            body.startsWith(')') && body.indexOf('_') in 4..10->body.substring(1,body.indexOf('_'))
+            else->null
+        }
+        if(killed!=null) {
+            if(owners[killed]==packet.source) {stations.remove(killed);owners.remove(killed)}
+            return
+        }
         val station = AprsProtocol.parse(line, nowMillis) ?: return
+        if(body.firstOrNull() in listOf(';',')')) owners[station.callsign]=packet.source else owners.remove(station.callsign)
         stations.remove(station.callsign)
         stations[station.callsign] = station
-        while (stations.size > maxStations) stations.remove(stations.keys.first())
+        while (stations.size > maxStations) {val key=stations.keys.first();stations.remove(key);owners.remove(key)}
     }
     fun snapshot(nowMillis: Long): List<AprsStation> {
         expire(nowMillis)
@@ -135,6 +148,7 @@ class AprsStationStore(private val maxStations: Int = 2000, private val ttlMilli
     }
     private fun expire(nowMillis: Long) {
         stations.entries.removeAll { nowMillis - it.value.heardAtMillis >= ttlMillis }
+        owners.keys.retainAll(stations.keys)
     }
 }
 

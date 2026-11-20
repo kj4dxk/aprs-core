@@ -30,8 +30,12 @@ data class BeaconFormat(
 data class BeaconTiming(val minimumSeconds: Int = 10, val maximumSeconds: Int = 1800,
     val timeOnly: Boolean = false, val startStop: Boolean = true, val headingDegrees: Double = 30.0,
     val forecastErrorMeters: Double = 160.9344, val distanceMeters: Double = 1609.344,
-    val movingKnots: Double = 0.5) {
+    val movingKnots: Double = 0.5, val smart: Boolean = false,
+    val slowKnots: Double = 5.0, val fastKnots: Double = 60.0, val fastSeconds: Int = 120,
+    val turnSlope: Double = 255.0, val turnSeconds: Int = 30) {
     init {
+        require(slowKnots.isFinite() && fastKnots.isFinite() && slowKnots>=0 && fastKnots>slowKnots)
+        require(fastSeconds in 10..86400 && turnSeconds in 10..3600 && turnSlope.isFinite() && turnSlope>=0)
         require(minimumSeconds in 10..3600 && maximumSeconds in minimumSeconds..86400)
         require(headingDegrees.isFinite() && headingDegrees in 0.0..180.0)
         require(forecastErrorMeters.isFinite() && forecastErrorMeters > 0)
@@ -57,6 +61,21 @@ class AdaptiveBeaconPolicy(private val timing: BeaconTiming, initialDistanceMete
         if(previous == null) return BeaconDecision("Initial",100.0)
         if(reconnected) return BeaconDecision("Connected",100.0)
         if(gpsTransition != null) return BeaconDecision(gpsTransition,100.0)
+        if(timing.smart && movingSource && !timing.timeOnly) {
+            val speed=position.speedKnots ?: 0.0
+            val interval=when {
+                speed<=timing.slowKnots->timing.maximumSeconds.toDouble()
+                speed>=timing.fastKnots->timing.fastSeconds.toDouble()
+                else->timing.fastSeconds*timing.fastKnots/speed
+            }.coerceIn(timing.minimumSeconds.toDouble(),timing.maximumSeconds.toDouble())
+            if(elapsed>=interval*1000) return BeaconDecision("Smart interval",100.0)
+            if(speed>timing.slowKnots && elapsed>=timing.turnSeconds*1000L && previous.course!=null && position.course!=null) {
+                val turn=abs((position.course-previous.course+540)%360-180)
+                val threshold=(timing.headingDegrees+timing.turnSlope/speed).coerceAtMost(180.0)
+                if(turn>=threshold) return BeaconDecision("Smart turn",100.0)
+            }
+            return null
+        }
         val candidates = mutableListOf(BeaconDecision("Interval", elapsed / (timing.maximumSeconds * 10.0)))
         if(movingSource && !timing.timeOnly) {
             val movedMeters = distance(previous.fix, position.fix)
