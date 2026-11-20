@@ -29,7 +29,8 @@ class ChatSession(
             client.messages.collect { message ->
                 try {
                     repository.receive(account, message)
-                    if (message.id != null) client.acknowledge(account, message.sender, message.id)
+                    if (message.id != null && client.state.value == AprsConnectionState.VERIFIED)
+                        client.acknowledge(account, message.sender, message.id)
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { error("Unable to save or acknowledge an incoming message") }
             }

@@ -2,7 +2,7 @@ Shared APRS core for APRSISOSM and APRSIS64
 
 Canonical source: https://github.com/kj4dxk/aprs-core
 New work is licensed under AGPL-3.0, matching APRSFoundation/APRSISMO's LICENSE.
-The initial five APRS source files and five tests were extracted without namespace
+The initial four APRS source files and five tests were extracted without namespace
 changes from kj4dxk/OsmAnd, commit 06fa798597, on 18 November 2026. Their existing
 GPLv3-or-later terms are preserved (ORIGIN-LICENSE.txt). Combining GPLv3 and AGPLv3
 parts does not relicense the original GPL code. No OsmAnd artwork is included.
