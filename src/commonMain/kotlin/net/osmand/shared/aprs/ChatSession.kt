@@ -10,9 +10,11 @@ interface AprsMessageTransport {
     fun canSend(): Boolean
     suspend fun sendMessage(account: String, recipient: String, text: String, id: String)
     suspend fun acknowledge(account: String, recipient: String, id: String)
+    suspend fun sendPending(account:String,message:PendingChat) = sendMessage(account,message.peer,message.body,message.wireId)
 }
 
-data class PendingChat(val row: Long, val peer: String, val body: String, val wireId: String)
+data class PendingChat(val row: Long, val peer: String, val body: String, val wireId: String,
+                       val route:String="best", val requestAck:Boolean=true)
 
 /** Implementations persist before returning. Account is always part of the storage key. */
 interface ChatRepository {
@@ -50,7 +52,7 @@ class ChatSession(
                         for (message in repository.pending(account)) {
                             repository.attempted(message.row)
                             val sent = try {
-                                client.sendMessage(account, message.peer, message.body, message.wireId)
+                                client.sendPending(account,message)
                                 true
                             } catch (cancelled: CancellationException) { throw cancelled }
                             catch (_: Exception) { false }

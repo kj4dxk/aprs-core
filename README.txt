@@ -15,7 +15,10 @@ avoids forcing a desktop toolchain upgrade on the Android build.
 Protocol and application services contain no Android or desktop UI dependencies.
 Current scope: APRS-IS positions, verified beaconing, text/ACK/REJ/reply-ACK,
 bounded station cache, endpoint/identity parsing and durable-chat orchestration.
-Mic-E, ambiguous positions and full APRSIS32 parity remain future work.
+Mic-E encoding/decoding, centered ambiguous positions, long-chat splitting,
+frequency decoding and optional per-message routing/ACK metadata are implemented.
+The Windows 0.6.0 release runs 55 shared-core tests including independent Mic-E
+specification vectors. Complete historical APRSIS32 parity is not claimed.
 
 Unbuilt beaconing additions (2026-11-20): BeaconEngine implements APRS-IS
 position/object/item/status formatting and adaptive scheduling; NmeaPosition

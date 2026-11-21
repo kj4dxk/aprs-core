@@ -19,7 +19,7 @@ data class BeaconFormat(
     val table: Char = '/', val symbol: Char = '-', val timestamp: BeaconTimestamp = BeaconTimestamp.HMS,
     val compressed: Boolean = false, val courseSpeed: Boolean = true, val altitude: Boolean = true,
     val precision: Int = 0, val messaging: Boolean = true, val includeReason: Boolean = false,
-    val statusTag: String = "",
+    val statusTag: String = "", val micE: Boolean = false,
 ) {
     init {
         require(table in "/\\" || table in 'A'..'Z' || table in '0'..'9')
@@ -137,6 +137,8 @@ object BeaconPackets {
         return packet+"\r\n"
     }
     fun position(call: String, position: BeaconPosition, format: BeaconFormat, comment: String = "", reason: String = ""): String {
+        // Mic-E cannot represent 180 degrees; use a normal report at the dateline.
+        if(format.micE && (abs(position.fix.longitude)*6000).roundToInt()<1080000) return MicE.encode(call,position,format,comment)
         val prefix=if(format.timestamp == BeaconTimestamp.NONE) {if(format.messaging) "=" else "!"}
             else {if(format.messaging) "@" else "/"}
         return frame(call,prefix+timestamp(position.fix.timeMillis,format.timestamp)+body(position,format,comment,reason))

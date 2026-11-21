@@ -6,6 +6,12 @@ data class AprsMessage(val sender: String, val recipient: String, val text: Stri
                        val rejected: Boolean = false, val replyAck: String? = null)
 
 object AprsMessages {
+    fun validLongText(text:String)=text.isNotBlank() && text.length<=300 && text.all {it.code in 32..126 && it !in "|~{"}
+    /** Preserve every character; each part is independently acknowledged. */
+    fun split(text:String):List<String> {
+        require(validLongText(text))
+        return if(text.length<=67)listOf(text) else text.chunked(61).mapIndexed {i,part->"(${i+1}/${(text.length+60)/61}) $part"}
+    }
     private val idPattern = Regex("[A-Za-z0-9]{1,5}")
     fun validText(text: String) = text.isNotBlank() && text.length <= 67 &&
         text.all { it.code in 32..126 && it !in "|~{" }

@@ -73,8 +73,14 @@ class AprsIsClient : AprsMessageTransport {
     suspend fun sendBroadcast(account: String, packet: String) {
         require(packet.endsWith("\r\n") && packet.length <= 512)
         val line=packet.dropLast(2)
-        require(line.all { it.code in 32..126 } && AprsProtocol.validCallsign(line.substringBefore('>')))
-        require(line.substringAfter('>').startsWith("APRS,TCPIP*:"))
+        require(AprsProtocol.validCallsign(line.substringBefore('>')))
+        require(line.none {it=='\r' || it=='\n' || it.code !in 1..127})
+        val envelope=line.substringAfter('>').substringBefore(':')
+        require(envelope.endsWith(",TCPIP*"))
+        val destination=envelope.removeSuffix(",TCPIP*")
+        val payload=line.substringAfter(':')
+        if(payload.firstOrNull() in listOf('`','\'')) require(MicE.decode(line.substringBefore('>'),destination,payload,0)!=null)
+        else require(destination=="APRS" && line.all {it.code in 32..126})
         val active=checkNotNull(sender.value) { "Not connected" }
         check(active.callsign == account)
         active.write(packet)

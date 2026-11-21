@@ -15,7 +15,8 @@ data class AprsFix(val latitude: Double, val longitude: Double, val timeMillis: 
 data class AprsStation(val callsign: String, val latitude: Double, val longitude: Double,
                        val symbolTable: Char, val symbol: Char, val comment: String,
                        val heardAtMillis: Long, val courseDegrees: Double? = null,
-                       val speedKnots: Double? = null, val altitudeMeters: Double? = null)
+                       val speedKnots: Double? = null, val altitudeMeters: Double? = null,
+                       val ambiguityDigits: Int = 0, val micEStatus: String? = null)
 
 /** Wire-format code independent of Android, sockets, and device clocks. */
 object AprsProtocol {
@@ -60,9 +61,7 @@ object AprsProtocol {
         return "$degrees$minutes.$fraction$hemisphere"
     }
 
-    /** Position reports: uncompressed, timestamped, compressed, objects and items.
-     * Unsupported formats (including Mic-E and ambiguous coordinates) return null.
-     */
+    /** Position reports including Mic-E and centered ambiguity cells. */
     fun parse(line: String, nowMillis: Long): AprsStation? = runCatching {
         require(line.length <= 510 && line.none { it == '\r' || it == '\n' })
         val separator = line.indexOf(':')
@@ -72,6 +71,7 @@ object AprsProtocol {
         require(callsign.length <= 9)
         var body = line.substring(separator + 1)
         require(body.isNotEmpty())
+        if(body[0] in "`'\u001c\u001d") return MicE.decode(callsign,line.substring(headerEnd+1,separator).substringBefore(','),body,nowMillis)
         if(body.startsWith(':')) {
             val message=AprsMessages.parse(line) ?: return null
             if(!message.text.startsWith(')')) return null
@@ -97,7 +97,9 @@ object AprsProtocol {
             require(body[4] == '.' && body[14] == '.')
             val lat = uncompressed(body.substring(0, 8), 2)
             val lon = uncompressed(body.substring(9, 18), 3)
-            AprsStation(callsign, lat, lon, body[8], body[18], body.substring(19), nowMillis)
+            val ambiguity=body.substring(0,8).count {it==' '}
+            require(ambiguity==body.substring(9,18).count {it==' '})
+            AprsStation(callsign, lat, lon, body[8], body[18], body.substring(19), nowMillis,ambiguityDigits=ambiguity)
         } else {
             require(body.length >= 13 && body[0] in "/\\0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
             fun base91(start: Int): Long = body.substring(start, start + 4).fold(0L) { total, c ->
@@ -118,9 +120,14 @@ object AprsProtocol {
 
     private fun uncompressed(value: String, degreesWidth: Int): Double {
         require(value.substring(0, degreesWidth).all { it in '0'..'9' })
-        require(Regex("[0-9]{2}\\.[0-9]{2}").matches(value.substring(degreesWidth, value.lastIndex)))
+        val raw=value.substring(degreesWidth,value.lastIndex)
+        require(raw.length==5 && raw[2]=='.')
+        val digits=raw.replace(".","")
+        val ambiguity=digits.count {it==' '}
+        require(ambiguity in 0..4 && digits.take(4-ambiguity).all {it in '0'..'9'} && digits.takeLast(ambiguity).all {it==' '})
+        val centered=if(ambiguity==0)digits else digits.take(4-ambiguity)+(if(ambiguity==4)"3000" else "5"+"0".repeat(ambiguity-1))
         val degrees = value.substring(0, degreesWidth).toInt()
-        val minutes = value.substring(degreesWidth, value.lastIndex).toDouble()
+        val minutes = centered.toInt()/100.0
         require(minutes >= 0 && minutes < 60)
         val max = if (degreesWidth == 2) 90 else 180
         require(degrees <= max && (degrees < max || minutes == 0.0))
