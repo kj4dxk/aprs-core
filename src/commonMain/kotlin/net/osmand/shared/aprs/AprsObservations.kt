@@ -3,7 +3,7 @@ package net.osmand.shared.aprs
 
 /** Standard APRS weather fields, converted to SI; missing fields remain null. */
 data class AprsWeather(val call: String,val time: Long,val temperatureC: Double?,val windDegrees: Int?,
-    val windKph: Double?,val gustKph: Double?,val humidity: Int?,val pressureHpa: Double?,val rainHourMm: Double?,val rainDayMm: Double?)
+    val windKph: Double?,val gustKph: Double?,val humidity: Int?,val pressureHpa: Double?,val rainHourMm: Double?,val rainDayMm: Double?,val rainMidnightMm:Double?=null)
 data class TelemetrySample(val call: String,val time: Long,val sequence: String,val analog: List<Double?>,val bits: String)
 data class TelemetryDefinition(val call: String,val kind: String,val values: List<String>)
 data class AprsBulletin(val sender: String,val destination: String,val text: String,val time: Long)
@@ -11,6 +11,7 @@ data class AprsBulletin(val sender: String,val destination: String,val text: Str
 object AprsObservations {
     fun weather(line: String,time: Long): AprsWeather? {
         val p=RadioPacket.parse(line) ?: return null
+        UltimeterWeather.decode(p.source,p.payload,time)?.let {return it}
         val station=AprsProtocol.parse(line,time)
         if(!p.payload.startsWith('_') && station?.symbol!='_') return null
         val text=if(p.payload.startsWith('_')) p.payload.drop(9) else station?.comment.orEmpty()
@@ -21,11 +22,25 @@ object AprsObservations {
         val f=n('t',3);val h=n('h',2)?.toInt()?.let {if(it==0) 100 else it}
         if(listOf(f,h,speed,n('b',5),n('r',3),n('p',3),n('g',3)).all {it==null}) return null
         return AprsWeather(p.source,time,f?.let {(it-32)*5/9},direction?.takeIf {it in 0..360},speed?.times(1.609344),
-            n('g',3)?.times(1.609344),h?.takeIf {it in 1..100},n('b',5)?.div(10),n('r',3)?.times(0.254),n('p',3)?.times(0.254))
+            n('g',3)?.times(1.609344),h?.takeIf {it in 1..100},n('b',5)?.div(10),n('r',3)?.times(0.254),n('p',3)?.times(0.254),n('P',3)?.times(0.254))
     }
     fun telemetry(line: String,time: Long): TelemetrySample? = runCatching {
         val p=RadioPacket.parse(line) ?: return null
-        if(!p.payload.startsWith("T#")) return null
+        if(!p.payload.startsWith("T#")) {
+            if(p.payload.firstOrNull() in listOf('`','\'')) {
+                val suffix=p.payload.drop(9);val count=when(suffix.firstOrNull()){','->5;'`'->2;else->0}
+                if(count>0 && suffix.length>=1+count*2 && suffix.substring(1,1+count*2).all {it in "0123456789abcdefABCDEF"}) {
+                    val analog=suffix.substring(1,1+count*2).chunked(2).map {it.toInt(16).toDouble()}
+                    return TelemetrySample(p.source,time,"MIC",(0..4).map {analog.getOrNull(it)},"00000000")
+                }
+            }
+            val encoded=Regex("\\|([!-{]{4,14})\\|").find(p.payload)?.groupValues?.get(1) ?: return null
+            require(encoded.length%2==0)
+            val pairs=encoded.chunked(2).map {(it[0].code-33)*91+it[1].code-33}
+            val analog=(1..5).map {pairs.getOrNull(it)?.toDouble()}
+            val digital=pairs.getOrNull(6)?.also {require(it in 0..255)} ?: 0
+            return TelemetrySample(p.source,time,pairs[0].toString(),analog,(0..7).joinToString("") {if(digital and (1 shl it)!=0) "1" else "0"})
+        }
         val v=p.payload.drop(2).split(',');require(v.size>=7 && v[0].matches(Regex("(?:[0-9]{3}|MIC)")))
         val a=v.subList(1,6).map {s->if(s.isBlank()) null else s.toDouble().also {require(it.isFinite() && it in 0.0..255.0)}}
         val bits=v[6].take(8);require(bits.matches(Regex("[01]{8}")))

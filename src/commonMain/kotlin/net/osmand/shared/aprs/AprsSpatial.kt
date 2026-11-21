@@ -41,7 +41,7 @@ object AprsSpatial {
         return (0..segments).map {project(center,it*360.0/segments,radius)}
     }
     fun predicted(s:AprsStation,now:Long,maximumAgeSeconds:Int):AprsFix? {
-        val d=details(s);val age=now-s.heardAtMillis
+        val d=details(s);val age=now-(s.positionTimeMillis ?: s.heardAtMillis)
         if(age !in 1..maximumAgeSeconds*1000L || d.course==null || d.speedKnots==null || d.speedKnots<=0) return null
         return project(fix(s),d.course,d.speedKnots*0.514444444*age/1000).copy(timeMillis=now)
     }

@@ -16,7 +16,7 @@ data class AprsStation(val callsign: String, val latitude: Double, val longitude
                        val symbolTable: Char, val symbol: Char, val comment: String,
                        val heardAtMillis: Long, val courseDegrees: Double? = null,
                        val speedKnots: Double? = null, val altitudeMeters: Double? = null,
-                       val ambiguityDigits: Int = 0, val micEStatus: String? = null)
+                       val ambiguityDigits: Int = 0, val micEStatus: String? = null, val positionTimeMillis: Long? = null)
 
 /** Wire-format code independent of Android, sockets, and device clocks. */
 object AprsProtocol {
@@ -62,7 +62,8 @@ object AprsProtocol {
     }
 
     /** Position reports including Mic-E and centered ambiguity cells. */
-    fun parse(line: String, nowMillis: Long): AprsStation? = runCatching {
+    fun parse(line: String, nowMillis: Long): AprsStation? = parseWire(line,nowMillis)?.let { it.copy(positionTimeMillis=PositionTimestamp.decode(line.substringAfter(':'),nowMillis)) }
+    private fun parseWire(line: String, nowMillis: Long): AprsStation? = runCatching {
         require(line.length <= 510 && line.none { it == '\r' || it == '\n' })
         val separator = line.indexOf(':')
         val headerEnd = line.indexOf('>')

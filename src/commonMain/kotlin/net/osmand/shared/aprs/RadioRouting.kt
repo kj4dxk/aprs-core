@@ -63,7 +63,7 @@ class RadioRouter(private val ownCall: String, private val rules: RadioRules) {
         if(path.size>8 || path.any {!RadioPacket.address(it.trimEnd('*'))}) return null
         return packet.copy(path=path)
     }
-    fun toRadio(port: String, packet: RadioPacket, now: Long, path: List<String>, passCalls: List<String>, passObjects: List<String>): RadioPacket? {
+    fun toRadio(port: String, packet: RadioPacket, now: Long, path: List<String>, passCalls: List<String>, passObjects: List<String>, filterAllowed:Boolean=false): RadioPacket? {
         if(packet.source==ownCall || packet.payload.startsWith('}') || packet.payload.startsWith('?') ||
             packet.path.any {it.trimEnd('*') in setOf("TCPXX","NOGATE","RFONLY","qAX")}) return null
         if(heardAnywhere(packet.source,now)) return null
@@ -73,7 +73,7 @@ class RadioRouter(private val ownCall: String, private val rules: RadioRules) {
             ')'->packet.payload.drop(1).takeWhile {it !in "!_"}
             else->""
         }
-        val explicitlyAllowed=packet.source in passCalls || objectName.isNotEmpty() && objectName in passObjects
+        val explicitlyAllowed=filterAllowed || packet.source in passCalls || objectName.isNotEmpty() && objectName in passObjects
         val position=packet.payload.firstOrNull() in listOf('!','=','/','@','`','\'')
         val associatedPosition=position && associated[port to packet.source]?.let {now-it in 0..rules.heardSeconds*1000L}==true
         val messageAllowed=message!=null && local(port,message.recipient,now) && !recentInternet(message.recipient,now)
