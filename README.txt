@@ -27,3 +27,10 @@ Unbuilt radio additions (2026-11-20): RadioPacket/Ax25Ui, streaming KISS and AGW
 codecs, TNC monitor parsing, RadioRouter digipeater and IGate policy. ChatSession
 now accepts AprsMessageTransport for shared RF/IS chat handling. AprsIsClient
 remains compatible for Android callers. New regression source is NOT RUN.
+
+Source-only spatial additions (2026-11-20; NOT compiled or tested): AprsSpatial
+provides PHG/DF decoding, predictions, horizon, multiline and area geometry.
+QruObjects provides requester-centered selection and item-in-message formatting.
+AprsProtocol retains compressed motion/altitude and accepts addressed items,
+including owner-scoped kills in AprsStationStore. Regression fixtures are added
+but not executed. Rendering and radio-history persistence remain in the host.

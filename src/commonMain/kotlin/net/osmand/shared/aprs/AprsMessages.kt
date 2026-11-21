@@ -19,6 +19,9 @@ object AprsMessages {
         require(idPattern.matches(id))
         return envelope(sender, recipient, "ack$id")
     }
+    fun unnumbered(sender:String,recipient:String,text:String):String {
+        require(validText(text));return envelope(sender,recipient,text)
+    }
 
     private fun envelope(sender: String, recipient: String, payload: String): String {
         require(AprsProtocol.validCallsign(sender) && AprsProtocol.validCallsign(recipient))

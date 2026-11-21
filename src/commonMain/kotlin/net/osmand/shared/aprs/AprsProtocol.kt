@@ -14,7 +14,8 @@ data class AprsFix(val latitude: Double, val longitude: Double, val timeMillis: 
 
 data class AprsStation(val callsign: String, val latitude: Double, val longitude: Double,
                        val symbolTable: Char, val symbol: Char, val comment: String,
-                       val heardAtMillis: Long)
+                       val heardAtMillis: Long, val courseDegrees: Double? = null,
+                       val speedKnots: Double? = null, val altitudeMeters: Double? = null)
 
 /** Wire-format code independent of Android, sockets, and device clocks. */
 object AprsProtocol {
@@ -71,6 +72,11 @@ object AprsProtocol {
         require(callsign.length <= 9)
         var body = line.substring(separator + 1)
         require(body.isNotEmpty())
+        if(body.startsWith(':')) {
+            val message=AprsMessages.parse(line) ?: return null
+            if(!message.text.startsWith(')')) return null
+            return parse("$callsign>APRS:${message.text}",nowMillis)
+        }
         body = when (body[0]) {
             '!', '=' -> body.substring(1)
             '/', '@' -> { require(body.length >= 8); body.substring(8) }
@@ -101,7 +107,12 @@ object AprsProtocol {
             val lat = 90.0 - base91(1) / 380926.0
             val lon = -180.0 + base91(5) / 190463.0
             AprsFix(lat, lon, nowMillis)
-            AprsStation(callsign, lat, lon, body[0], body[9], body.substring(13), nowMillis)
+            val c=body[10].code-33;val speed=body[11].code-33;val type=body[12].code-33
+            val altitudeMode=type in 0..63 && type and 0x18 == 0x10
+            AprsStation(callsign, lat, lon, body[0], body[9], body.substring(13), nowMillis,
+                if(!altitudeMode && c in 0..89 && speed in 0..89 && body[9]!='_') c*4.0 else null,
+                if(!altitudeMode && c in 0..89 && speed in 0..89 && body[9]!='_') kotlin.math.exp(speed*kotlin.math.ln(1.08))-1 else null,
+                if(altitudeMode && c in 0..90 && speed in 0..90) kotlin.math.exp((c*91+speed)*kotlin.math.ln(1.002))*0.3048 else null)
         }
     }.getOrNull()
 
@@ -126,7 +137,7 @@ class AprsStationStore(private val maxStations: Int = 2000, private val ttlMilli
     fun receive(line: String, nowMillis: Long) {
         expire(nowMillis)
         val packet=RadioPacket.parse(line) ?: return
-        val body=packet.payload
+        val body=if(packet.payload.startsWith(':')) AprsMessages.parse(line)?.text?.takeIf {it.startsWith(')')} ?: packet.payload else packet.payload
         val killed=when {
             body.startsWith(';') && body.length>=11 && body[10]=='_'->body.substring(1,10).trim()
             body.startsWith(')') && body.indexOf('_') in 4..10->body.substring(1,body.indexOf('_'))
