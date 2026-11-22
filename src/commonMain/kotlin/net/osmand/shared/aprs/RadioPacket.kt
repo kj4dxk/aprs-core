@@ -4,6 +4,15 @@ package net.osmand.shared.aprs
 /** TNC2 envelope; RF addresses have numeric AX.25 SSIDs, unlike Internet identities. */
 data class RadioPacket(val source: String, val destination: String, val path: List<String>, val payload: String) {
     fun line() = "$source>$destination${if(path.isEmpty()) "" else ","+path.joinToString(",")}:$payload"
+    /** Unwrap only for application decoding; routing retains the original envelope. */
+    fun content(maxDepth:Int=3):RadioPacket? {
+        var value=this
+        repeat(maxDepth) {
+            if(!value.payload.startsWith('}'))return value
+            value=parse(value.payload.drop(1))?:return null
+        }
+        return value.takeUnless {it.payload.startsWith('}')}
+    }
     val key get() = "$source>$destination:$payload" // Deliberately ignore the changing digipeater path.
     val usedHops get() = path.indexOfLast {it.endsWith('*')}+1
     companion object {
@@ -14,7 +23,8 @@ data class RadioPacket(val source: String, val destination: String, val path: Li
             require(arrow>0 && colon>arrow)
             val parts=line.substring(arrow+1,colon).split(',')
             val source=line.substring(0,arrow)
-            require(address(source) && address(parts.first()))
+            fun internetAddress(value:String)=value.length in 1..9 && Regex("[A-Z0-9]+(-[A-Z0-9]{1,2})?").matches(value)
+            require(internetAddress(source) && internetAddress(parts.first()))
             require(parts.size<=18 && parts.drop(1).all {it.isNotEmpty() && it.length<=10 && it.all {c->c.isLetterOrDigit() || c in "-*"}})
             RadioPacket(source,parts.first(),parts.drop(1),line.substring(colon+1)).also {require(it.payload.isNotEmpty())}
         }.getOrNull()

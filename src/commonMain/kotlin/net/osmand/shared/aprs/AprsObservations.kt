@@ -10,7 +10,7 @@ data class AprsBulletin(val sender: String,val destination: String,val text: Str
 
 object AprsObservations {
     fun weather(line: String,time: Long): AprsWeather? {
-        val p=RadioPacket.parse(line) ?: return null
+        val p=RadioPacket.parse(line)?.content() ?: return null
         UltimeterWeather.decode(p.source,p.payload,time)?.let {return it}
         val station=AprsProtocol.parse(line,time)
         if(!p.payload.startsWith('_') && station?.symbol!='_') return null
@@ -20,18 +20,18 @@ object AprsObservations {
         val direction=wind?.groupValues?.get(1)?.toIntOrNull() ?: n('c',3)?.toInt()
         val speed=wind?.groupValues?.get(2)?.toDoubleOrNull() ?: n('s',3)
         val f=n('t',3);val h=n('h',2)?.toInt()?.let {if(it==0) 100 else it}
-        if(listOf(f,h,speed,n('b',5),n('r',3),n('p',3),n('g',3)).all {it==null}) return null
-        return AprsWeather(p.source,time,f?.let {(it-32)*5/9},direction?.takeIf {it in 0..360},speed?.times(1.609344),
+        if(listOf(f,h,speed,n('b',5),n('r',3),n('p',3),n('P',3),n('g',3)).all {it==null}) return null
+        return AprsWeather(station?.callsign?:p.source,time,f?.let {(it-32)*5/9},direction?.takeIf {it in 0..360},speed?.times(1.609344),
             n('g',3)?.times(1.609344),h?.takeIf {it in 1..100},n('b',5)?.div(10),n('r',3)?.times(0.254),n('p',3)?.times(0.254),n('P',3)?.times(0.254))
     }
     fun telemetry(line: String,time: Long): TelemetrySample? = runCatching {
-        val p=RadioPacket.parse(line) ?: return null
+        val p=RadioPacket.parse(line)?.content() ?: return null
         if(!p.payload.startsWith("T#")) {
             if(p.payload.firstOrNull() in listOf('`','\'')) {
-                val suffix=p.payload.drop(9);val count=when(suffix.firstOrNull()){','->5;'`'->2;else->0}
+                val suffix=p.payload.drop(9);val count=when(suffix.firstOrNull()){'\''->5;'`'->2;else->0}
                 if(count>0 && suffix.length>=1+count*2 && suffix.substring(1,1+count*2).all {it in "0123456789abcdefABCDEF"}) {
                     val analog=suffix.substring(1,1+count*2).chunked(2).map {it.toInt(16).toDouble()}
-                    return TelemetrySample(p.source,time,"MIC",(0..4).map {analog.getOrNull(it)},"00000000")
+                    return TelemetrySample(p.source,time,"MIC",(0..4).map {if(count==2)when(it){0->analog[0];2->analog[1];else->null}else analog[it]},"00000000")
                 }
             }
             val encoded=Regex("\\|([!-{]{4,14})\\|").find(p.payload)?.groupValues?.get(1) ?: return null
@@ -47,7 +47,7 @@ object AprsObservations {
         TelemetrySample(p.source,time,v[0],a,bits)
     }.getOrNull()
     fun definition(line: String): TelemetryDefinition? = runCatching {
-        val p=RadioPacket.parse(line) ?: return null;val body=p.payload
+        val p=RadioPacket.parse(line)?.content() ?: return null;val body=p.payload
         require(body.length>=16 && body[0]==':' && body[10]==':' && body.substring(1,10).trim()==p.source)
         val text=body.substring(11).substringBefore('{');val kind=text.substringBefore('.')
         require(kind in listOf("PARM","UNIT","EQNS","BITS"))
@@ -57,7 +57,7 @@ object AprsObservations {
         TelemetryDefinition(p.source,kind,values)
     }.getOrNull()
     fun bulletin(line: String,time: Long): AprsBulletin? {
-        val p=RadioPacket.parse(line) ?: return null;val body=p.payload
+        val p=RadioPacket.parse(line)?.content() ?: return null;val body=p.payload
         if(body.length<12 || body[0]!=':' || body[10]!=':') return null
         val to=body.substring(1,10).trimEnd()
         if(!to.startsWith("BLN") && !to.startsWith("NWS-") && !to.startsWith("NWS_")) return null

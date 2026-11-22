@@ -12,6 +12,7 @@ object AprsMessages {
         require(validLongText(text))
         return if(text.length<=67)listOf(text) else text.chunked(61).mapIndexed {i,part->"(${i+1}/${(text.length+60)/61}) $part"}
     }
+    fun validAddressee(value:String)=value.length in 1..9 && value.all {it.code in 33..126 && it !in ":{}|~"}
     private val idPattern = Regex("[A-Za-z0-9]{1,5}")
     fun validText(text: String) = text.isNotBlank() && text.length <= 67 &&
         text.all { it.code in 32..126 && it !in "|~{" }
@@ -30,7 +31,7 @@ object AprsMessages {
     }
 
     private fun envelope(sender: String, recipient: String, payload: String): String {
-        require(AprsProtocol.validCallsign(sender) && AprsProtocol.validCallsign(recipient))
+        require(AprsProtocol.validCallsign(sender) && validAddressee(recipient))
         return "$sender>APRS,TCPIP*::${recipient.padEnd(9)}:$payload\r\n"
     }
 
@@ -42,7 +43,7 @@ object AprsMessages {
         val body = packet.substring(split + 1)
         require(split > packet.indexOf('>') && body.length >= 11 && body[0] == ':' && body[10] == ':')
         val recipient = body.substring(1, 10).trimEnd()
-        require(AprsProtocol.validCallsign(recipient))
+        require(validAddressee(recipient))
         val payload = body.substring(11)
         val response = Regex("^(ack|rej)([A-Za-z0-9]{1,5})(?:\\}([A-Za-z0-9]{0,5}))?$").matchEntire(payload)
         if (response != null) return AprsMessage(sender, recipient, "", acknowledgement = response.groupValues[2],

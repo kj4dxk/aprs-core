@@ -4,7 +4,12 @@ package net.osmand.shared.aprs
 /** Local APRS subscription filters. Includes are ORed; exclusions always win.
  * The caller still applies RF loop prevention, eligibility and rate limits. */
 class PacketFilter(expression:String) {
- private val terms=expression.trim().split(Regex("\\s+")).filter {it.isNotEmpty()}
+ private val terms=run {
+  val strict=Regex("(?:^|\\s)([-+]?os/)").find(expression)
+  val head=if(strict==null)expression else expression.substring(0,strict.range.first)
+  head.trim().split(Regex("\\s+")).filter {it.isNotEmpty()}+
+   if(strict==null)emptyList() else listOf(expression.substring(strict.range.first).trimStart())
+ }
  init {
   require(expression.length<=2048 && terms.size<=64)
   terms.forEach {term->
@@ -25,7 +30,7 @@ class PacketFilter(expression:String) {
  fun matches(packet:RadioPacket,own:AprsFix?,positions:Map<String,AprsFix>,igates:Set<String> = emptySet()):Boolean {
   if(terms.isEmpty())return false
   val station=AprsProtocol.parse(packet.line(),0)
-  val message=AprsMessages.parse(packet.line())
+  val recipient=packet.payload.takeIf {it.length>=11 && it[0]==':' && it[10]==':'}?.substring(1,10)?.trimEnd()
   val position=station?.let {AprsSpatial.fix(it)} ?: positions[packet.source]
   fun wildcard(pattern:String,value:String):Boolean {
    var p=0;var v=0;var star=-1;var retry=0
@@ -42,7 +47,7 @@ class PacketFilter(expression:String) {
    val p=term.removePrefix("-").removePrefix("+").split('/');val args=p.drop(1)
    fun any(value:String)=args.any {wildcard(it,value)}
    fun near(center:AprsFix?,km:Double):Boolean {
-    val target=if(message!=null)positions[message.recipient] ?: position else position
+    val target=if(recipient!=null)positions[recipient] ?: position else position
     return center!=null && target!=null && AdaptiveBeaconPolicy.distance(center,target)<=km*1000
    }
    return when(p[0]) {
@@ -51,14 +56,14 @@ class PacketFilter(expression:String) {
     "D"->packet.path.any {any(it.trimEnd('*'))}
     "d"->packet.path.take(packet.usedHops).any {any(it.trimEnd('*'))}
     "e"->packet.path.indexOfFirst {it.startsWith('q')}.let {it>=0 && any(packet.path.getOrNull(it+1).orEmpty())}
-    "g"->message!=null && any(message.recipient)
+    "g"->recipient!=null && any(recipient)
     "r"->near(AprsFix(p[1].toDouble(),p[2].toDouble(),0),p[3].toDouble())
     "m"->near(own,p[1].toDouble());"f"->near(positions[p[1]],p[2].toDouble())
-    "a"->{val v=message?.recipient?.let {positions[it]} ?: position;v!=null && v.latitude in p[3].toDouble()..p[1].toDouble() && if(p[2].toDouble()<=p[4].toDouble()) v.longitude in p[2].toDouble()..p[4].toDouble() else v.longitude>=p[2].toDouble() || v.longitude<=p[4].toDouble()}
+    "a"->{val v=recipient?.let {positions[it]} ?: position;v!=null && v.latitude in p[3].toDouble()..p[1].toDouble() && if(p[2].toDouble()<=p[4].toDouble()) v.longitude in p[2].toDouble()..p[4].toDouble() else v.longitude>=p[2].toDouble() || v.longitude<=p[4].toDouble()}
     "q"->packet.path.any {it.length==3 && it.startsWith("qA") && it[2] in p[1]} || (p.getOrNull(2)=="I" && station!=null && packet.source in igates)
     "s"->station!=null && if(station.symbolTable=='/')station.symbol in p[1].replace('|','/') else station.symbol in p.getOrElse(2){""}.replace('|','/') && (p.getOrNull(3).isNullOrEmpty() || station.symbolTable in p[3])
     "t"->{val type=when(packet.payload.firstOrNull()) {';',')'->if(packet.payload[0]==';')'o' else 'i';':'->'m';'?'->'q';'>'->'s';'T'->'t';'{'->'u';'_'->'w';else->if(station!=null)'p' else ' '}
-     (type in p[1] || 'w' in p[1] && (station?.symbol=='_' || packet.payload.startsWith('_')) || 't' in p[1] && AprsObservations.telemetry(packet.line(),0)!=null || 'n' in p[1] && (message?.recipient?.startsWith("NWS")==true || packet.source.startsWith("NWS"))) && (p.size==2 || near(positions[p[2]],p[3].toDouble()))}
+     (type in p[1] || 'w' in p[1] && (station?.symbol=='_' || packet.payload.startsWith('_')) || 't' in p[1] && AprsObservations.telemetry(packet.line(),0)!=null || 'n' in p[1] && (recipient?.startsWith("NWS")==true || packet.source.startsWith("NWS") || type=='o' && station?.symbolTable=='\\' && station.symbol in "nh")) && (p.size==2 || near(positions[p[2]],p[3].toDouble()))}
     else->false
    }
   }

@@ -62,7 +62,10 @@ object AprsProtocol {
     }
 
     /** Position reports including Mic-E and centered ambiguity cells. */
-    fun parse(line: String, nowMillis: Long): AprsStation? = parseWire(line,nowMillis)?.let { it.copy(positionTimeMillis=PositionTimestamp.decode(line.substringAfter(':'),nowMillis)) }
+    fun parse(line: String, nowMillis: Long): AprsStation? {
+        val content=RadioPacket.parse(line)?.content()?.line()?:return null
+        return parseWire(content,nowMillis)?.let { it.copy(positionTimeMillis=PositionTimestamp.decode(content.substringAfter(':'),nowMillis)) }
+    }
     private fun parseWire(line: String, nowMillis: Long): AprsStation? = runCatching {
         require(line.length <= 510 && line.none { it == '\r' || it == '\n' })
         val separator = line.indexOf(':')
@@ -96,10 +99,26 @@ object AprsProtocol {
         }
         if (body.length >= 19 && body[7] in "NS" && body[17] in "EW") {
             require(body[4] == '.' && body[14] == '.')
-            val lat = uncompressed(body.substring(0, 8), 2)
-            val lon = uncompressed(body.substring(9, 18), 3)
+            var lat = uncompressed(body.substring(0, 8), 2)
+            var lon = uncompressed(body.substring(9, 18), 3)
             val ambiguity=body.substring(0,8).count {it==' '}
             require(ambiguity==body.substring(9,18).count {it==' '})
+            if(ambiguity==0) {
+                val dao=Regex("!([Ww])(.)(.)!").find(body.substring(19).replace(Regex("\\|[!-{]{4,14}\\|"),""))
+                if(dao!=null) {
+                    val decimal=dao.groupValues[1]=="W"
+                    fun offset(index:Int):Double? {
+                        val c=dao.groupValues[index][0]
+                        return if(decimal) c.digitToIntOrNull()?.div(60000.0)
+                            else if(c.code in 33..123)(c.code-33)/91.0/6000.0 else null
+                    }
+                    val a=offset(2);val b=offset(3)
+                    if(a!=null && b!=null) {
+                        lat+=a*(if(body[7]=='S')-1 else 1);lon+=b*(if(body[17]=='W')-1 else 1)
+                        AprsFix(lat,lon,nowMillis)
+                    }
+                }
+            }
             AprsStation(callsign, lat, lon, body[8], body[18], body.substring(19), nowMillis,ambiguityDigits=ambiguity)
         } else {
             require(body.length >= 13 && body[0] in "/\\0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -144,7 +163,7 @@ class AprsStationStore(private val maxStations: Int = 2000, private val ttlMilli
     init { require(maxStations > 0 && ttlMillis > 0) }
     fun receive(line: String, nowMillis: Long) {
         expire(nowMillis)
-        val packet=RadioPacket.parse(line) ?: return
+        val packet=RadioPacket.parse(line)?.content() ?: return
         val body=if(packet.payload.startsWith(':')) AprsMessages.parse(line)?.text?.takeIf {it.startsWith(')')} ?: packet.payload else packet.payload
         val killed=when {
             body.startsWith(';') && body.length>=11 && body[10]=='_'->body.substring(1,10).trim()
@@ -155,7 +174,7 @@ class AprsStationStore(private val maxStations: Int = 2000, private val ttlMilli
             if(owners[killed]==packet.source) {stations.remove(killed);owners.remove(killed)}
             return
         }
-        val station = AprsProtocol.parse(line, nowMillis) ?: return
+        val station = AprsProtocol.parse(packet.line(), nowMillis) ?: return
         if(body.firstOrNull() in listOf(';',')')) owners[station.callsign]=packet.source else owners.remove(station.callsign)
         stations.remove(station.callsign)
         stations[station.callsign] = station
