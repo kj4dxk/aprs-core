@@ -42,6 +42,12 @@ class AprsIsClient : AprsMessageTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutableState = MutableStateFlow(AprsConnectionState.STOPPED)
     val state: StateFlow<AprsConnectionState> = mutableState
+    private val mutableServerMessages=MutableStateFlow<List<String>>(emptyList())
+    val serverMessages:StateFlow<List<String>> = mutableServerMessages
+    private fun serverMessage(line:String) {
+        val clean=line.take(512).replace(Regex("(?i)(\\bpass(?:code)?\\s+)[^\\s]+"),"$1[redacted]")
+        mutableServerMessages.value=(mutableServerMessages.value+clean).takeLast(64)
+    }
     val activeEndpoint = MutableStateFlow<AprsEndpoint?>(null)
     private val mutableStations = MutableStateFlow<List<AprsStation>>(emptyList())
     val stations: StateFlow<List<AprsStation>> = mutableStations
@@ -147,6 +153,7 @@ class AprsIsClient : AprsMessageTransport {
                 val writeLock = Mutex()
                 val banner = withTimeout(20_000) { input.readUTF8Line(512) }
                 check(banner?.startsWith("#") == true)
+                serverMessage(banner!!)
                 output.writeStringUtf8(AprsProtocol.login(config.callsign, config.passcode,
                     AprsFilters.compose(config.callsign, config.latitude, config.longitude, config.radiusKm, config.filterMode, config.customFilter),
                     config.application))
@@ -178,6 +185,7 @@ class AprsIsClient : AprsMessageTransport {
                     while (isActive) {
                         val line = withTimeout(120_000) { input.readUTF8Line(512) } ?: break
                         if (line.startsWith("#")) {
+                            serverMessage(line)
                             if (line.contains("logresp", ignoreCase = true)) {
                                 verified.value = AprsProtocol.verifiedLogin(line, config.callsign)
                                 mutableState.value = if (verified.value) AprsConnectionState.VERIFIED else AprsConnectionState.RECEIVING
