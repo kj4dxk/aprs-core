@@ -20,7 +20,7 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
                         val latitude: Double, val longitude: Double,
                         val radiusKm: Int = 100, val beaconEnabled: Boolean = false,
                         val beaconIntervalMillis: Long = 120_000,
-                        val application: String = "APRSISOSM", val filterMode: String = "range", val customFilter: String = "",
+                        val application: String = "APRSERJa", val filterMode: String = "range", val customFilter: String = "",
                         val fallbackServers: List<AprsEndpoint> = emptyList()) {
     init {
         AprsProtocol.login(callsign, passcode, AprsFilters.compose(callsign, latitude, longitude, radiusKm, filterMode, customFilter), application)

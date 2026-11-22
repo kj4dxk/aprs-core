@@ -89,7 +89,7 @@ object AprsServices {
     }
     fun gpx(call: String,points: List<AprsFix>): String {
         fun xml(s: String)=s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;")
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><gpx version=\"1.1\" creator=\"APRSIS64\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><name>${xml(call)}</name><trkseg>"+
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><gpx version=\"1.1\" creator=\"APRSERJ64\" xmlns=\"http://www.topografix.com/GPX/1/1\"><trk><name>${xml(call)}</name><trkseg>"+
             points.joinToString("") {"<trkpt lat=\"${it.latitude}\" lon=\"${it.longitude}\"><time>${kotlinx.datetime.Instant.fromEpochMilliseconds(it.timeMillis)}</time></trkpt>"}+"</trkseg></trk></gpx>"
     }
 }
