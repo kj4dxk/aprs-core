@@ -187,7 +187,7 @@ class AprsIsClient : AprsMessageTransport {
                         if (line.startsWith("#")) {
                             serverMessage(line)
                             if (line.contains("logresp", ignoreCase = true)) {
-                                verified.value = AprsProtocol.verifiedLogin(line, config.callsign)
+                                verified.value = config.passcode != "-1" && AprsProtocol.verifiedLogin(line, config.callsign)
                                 mutableState.value = if (verified.value) AprsConnectionState.VERIFIED else AprsConnectionState.RECEIVING
                             }
                         } else {

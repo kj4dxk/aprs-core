@@ -21,6 +21,10 @@ interface ChatRepository {
     suspend fun receive(account: String, message: AprsMessage)
     suspend fun pending(account: String): List<PendingChat>
     suspend fun attempted(row: Long)
+    suspend fun claim(row: Long): Boolean {
+        attempted(row)
+        return true
+    }
     suspend fun transmitted(row: Long, success: Boolean)
 }
 
@@ -50,7 +54,7 @@ class ChatSession(
                 if (client.canSend()) {
                     try {
                         for (message in repository.pending(account)) {
-                            repository.attempted(message.row)
+                            if (!repository.claim(message.row)) continue
                             val sent = try {
                                 client.sendPending(account,message)
                                 true
