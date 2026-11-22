@@ -5,8 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import net.osmand.shared.aprs.AprsIsClient
-import net.osmand.shared.aprs.AprsIsConfig
 
 data class StationMarker(val callsign: String, val latitude: Double, val longitude: Double)
 

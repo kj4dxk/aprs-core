@@ -3,14 +3,14 @@ GSV/GSA diagnostics, base-91 and Mic-E telemetry, Ultimeter weather decoding,
 and email packet splitting. Compiled with APRSERJ64 0.7.0; tests were deliberately
 not run for this update. Previous test results below apply to earlier revisions.
 
-Shared APRS core for APRSERJa and APRSERJ64
+Shared APRS core for APRSERJa, APRSERJ64 and APRSERJi
 
 Canonical source: https://github.com/kj4dxk/aprs-core
-New work is licensed under AGPL-3.0, matching APRSFoundation/APRSISMO's LICENSE.
-The initial four APRS source files and five tests were extracted without namespace
-changes from kj4dxk/OsmAnd, commit 06fa798597, on 18 November 2026. Their existing
-GPLv3-or-later terms are preserved (ORIGIN-LICENSE.txt). Combining GPLv3 and AGPLv3
-parts does not relicense the original GPL code. No OsmAnd artwork is included.
+The APRS engine is based on APRSIS32 and APRSISMO. Project code is licensed under
+AGPL-3.0, matching APRSFoundation/APRSISMO's LICENSE.
+
+Kotlin sources use org.aprsfoundation.core. Clients updating their core pin
+must update their imports to that package.
 
 Build: Java 17, ./gradlew test. The Windows parent can compile the same sources
 with its newer Kotlin compiler. Android includes src/commonMain/kotlin directly

@@ -1,6 +1,6 @@
 plugins { kotlin("jvm") }
 group = "org.aprsfoundation.community"
-version = "0.1.0"
+version = "0.2.0"
 repositories { mavenCentral() }
 kotlin { jvmToolchain(17) }
 sourceSets {
