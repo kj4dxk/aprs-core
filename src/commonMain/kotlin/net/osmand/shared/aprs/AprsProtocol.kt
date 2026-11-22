@@ -63,7 +63,7 @@ object AprsProtocol {
 
     /** Position reports including Mic-E and centered ambiguity cells. */
     fun parse(line: String, nowMillis: Long): AprsStation? {
-        val content=RadioPacket.parse(line)?.content()?.line()?:return null
+        val content=RadioPacket.parse(line,receiveOnly=true)?.content(receiveOnly=true)?.line()?:return null
         return parseWire(content,nowMillis)?.let { it.copy(positionTimeMillis=PositionTimestamp.decode(content.substringAfter(':'),nowMillis)) }
     }
     private fun parseWire(line: String, nowMillis: Long): AprsStation? = runCatching {
@@ -97,8 +97,8 @@ object AprsProtocol {
             }
             else -> return null
         }
-        if (body.length >= 19 && body[7] in "NS" && body[17] in "EW") {
-            require(body[4] == '.' && body[14] == '.')
+        if (body.length >= 19 && body[4] == '.' && body[14] == '.' && body.take(2).all {it in '0'..'9'}) {
+            require(body[7].uppercaseChar() in "NS" && body[17].uppercaseChar() in "EW")
             var lat = uncompressed(body.substring(0, 8), 2)
             var lon = uncompressed(body.substring(9, 18), 3)
             val ambiguity=body.substring(0,8).count {it==' '}
@@ -114,7 +114,7 @@ object AprsProtocol {
                     }
                     val a=offset(2);val b=offset(3)
                     if(a!=null && b!=null) {
-                        lat+=a*(if(body[7]=='S')-1 else 1);lon+=b*(if(body[17]=='W')-1 else 1)
+                        lat+=a*(if(body[7].uppercaseChar()=='S')-1 else 1);lon+=b*(if(body[17].uppercaseChar()=='W')-1 else 1)
                         AprsFix(lat,lon,nowMillis)
                     }
                 }
@@ -151,7 +151,7 @@ object AprsProtocol {
         require(minutes >= 0 && minutes < 60)
         val max = if (degreesWidth == 2) 90 else 180
         require(degrees <= max && (degrees < max || minutes == 0.0))
-        val sign = if (value.last() in "SW") -1 else 1
+        val sign = if (value.last().uppercaseChar() in "SW") -1 else 1
         return sign * (degrees + minutes / 60)
     }
 }
@@ -163,7 +163,7 @@ class AprsStationStore(private val maxStations: Int = 2000, private val ttlMilli
     init { require(maxStations > 0 && ttlMillis > 0) }
     fun receive(line: String, nowMillis: Long) {
         expire(nowMillis)
-        val packet=RadioPacket.parse(line)?.content() ?: return
+        val packet=RadioPacket.parse(line,receiveOnly=true)?.content(receiveOnly=true) ?: return
         val body=if(packet.payload.startsWith(':')) AprsMessages.parse(line)?.text?.takeIf {it.startsWith(')')} ?: packet.payload else packet.payload
         val killed=when {
             body.startsWith(';') && body.length>=11 && body[10]=='_'->body.substring(1,10).trim()
