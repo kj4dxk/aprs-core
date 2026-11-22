@@ -5,11 +5,11 @@ package org.aprsfoundation.core
 data class RadioPacket(val source: String, val destination: String, val path: List<String>, val payload: String) {
     fun line() = "$source>$destination${if(path.isEmpty()) "" else ","+path.joinToString(",")}:$payload"
     /** Unwrap only for application decoding; routing retains the original envelope. */
-    fun content(maxDepth:Int=3):RadioPacket? {
+    fun content(maxDepth:Int=3, receiveOnly:Boolean=false):RadioPacket? {
         var value=this
         repeat(maxDepth) {
             if(!value.payload.startsWith('}'))return value
-            value=parse(value.payload.drop(1))?:return null
+            value=parse(value.payload.drop(1),receiveOnly)?:return null
         }
         return value.takeUnless {it.payload.startsWith('}')}
     }
@@ -17,12 +17,12 @@ data class RadioPacket(val source: String, val destination: String, val path: Li
     val usedHops get() = path.indexOfLast {it.endsWith('*')}+1
     companion object {
         fun address(call: String): Boolean = Regex("[A-Z0-9]{1,6}(-(?:[0-9]|1[0-5]))?").matches(call)
-        fun parse(line: String): RadioPacket? = runCatching {
-            require(line.length in 5..510 && line.none {it=='\r' || it=='\n' || it.code>127 || it.code==0})
+        fun parse(line: String, receiveOnly:Boolean=false): RadioPacket? = runCatching {
+            require(line.length in 5..510 && line.none {it=='\r' || it=='\n' || (!receiveOnly && it.code>127) || it.code==0})
             val colon=line.indexOf(':'); val arrow=line.indexOf('>')
             require(arrow>0 && colon>arrow)
-            val parts=line.substring(arrow+1,colon).split(',')
-            val source=line.substring(0,arrow)
+            val parts=line.substring(arrow+1,colon).split(',').mapIndexed {index,value->if(receiveOnly && index==0)value.uppercase() else value}
+            val source=line.substring(0,arrow).let {if(receiveOnly)it.uppercase() else it}
             fun internetAddress(value:String)=value.length in 1..9 && Regex("[A-Z0-9]+(-[A-Z0-9]{1,2})?").matches(value)
             require(internetAddress(source) && internetAddress(parts.first()))
             require(parts.size<=18 && parts.drop(1).all {it.isNotEmpty() && it.length<=10 && it.all {c->c.isLetterOrDigit() || c in "-*"}})
