@@ -23,7 +23,7 @@ object AprsProtocol {
     private val callPattern = Regex("[A-Z0-9]{3,6}(-[1-9A-Z][0-9A-Z]?)?")
     fun validCallsign(value: String): Boolean = value.length <= 9 && callPattern.matches(value)
 
-    fun login(callsign: String, passcode: String, filter: String, application: String = "APRSISOSM", applicationVersion: String = "0.1"): String {
+    fun login(callsign: String, passcode: String, filter: String, application: String = "APRSERJa", applicationVersion: String = "0.1"): String {
         require(validCallsign(callsign))
         require(passcode == "-1" || passcode.matches(Regex("[0-9]{1,5}")))
         require(filter.length <= 160 && filter.all { it.code in 32..126 })
@@ -42,7 +42,7 @@ object AprsProtocol {
         Regex("^#\\s*logresp\\s+${Regex.escape(callsign)}\\s+verified(?:,|\\s|$)",
             RegexOption.IGNORE_CASE).containsMatchIn(line)
 
-    fun beacon(callsign: String, fix: AprsFix, comment: String = "APRSISOSM",
+    fun beacon(callsign: String, fix: AprsFix, comment: String = "APRSERJa",
                symbolTable: Char = '/', symbol: Char = '>'): String {
         require(validCallsign(callsign))
         require(symbolTable == '/' || symbolTable == '\\' || symbolTable in 'A'..'Z' || symbolTable in '0'..'9')

@@ -1,9 +1,9 @@
 2026-11-20 update: local packet filters, UTC position timestamp reconstruction,
 GSV/GSA diagnostics, base-91 and Mic-E telemetry, Ultimeter weather decoding,
-and email packet splitting. Compiled with APRSIS64 0.7.0; tests were deliberately
+and email packet splitting. Compiled with APRSERJ64 0.7.0; tests were deliberately
 not run for this update. Previous test results below apply to earlier revisions.
 
-Shared APRS core for APRSISOSM and APRSIS64
+Shared APRS core for APRSERJa and APRSERJ64
 
 Canonical source: https://github.com/kj4dxk/aprs-core
 New work is licensed under AGPL-3.0, matching APRSFoundation/APRSISMO's LICENSE.
