@@ -23,12 +23,13 @@ object AprsProtocol {
     private val callPattern = Regex("[A-Z0-9]{3,6}(-[1-9A-Z][0-9A-Z]?)?")
     fun validCallsign(value: String): Boolean = value.length <= 9 && callPattern.matches(value)
 
-    fun login(callsign: String, passcode: String, filter: String, application: String = "APRSERJa"): String {
+    fun login(callsign: String, passcode: String, filter: String, application: String = "APRSERJa", applicationVersion: String = "0.1"): String {
         require(validCallsign(callsign))
         require(passcode == "-1" || passcode.matches(Regex("[0-9]{1,5}")))
         require(filter.length <= 160 && filter.all { it.code in 32..126 })
         require(application.matches(Regex("[A-Za-z0-9.-]{1,24}")))
-        return "user $callsign pass $passcode vers $application 0.1 filter $filter\r\n"
+        require(applicationVersion.matches(Regex("[A-Za-z0-9.-]{1,32}")))
+        return "user $callsign pass $passcode vers $application $applicationVersion filter $filter\r\n"
     }
 
     fun rangeFilter(latitude: Double, longitude: Double, radiusKm: Int): String {

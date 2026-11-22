@@ -21,9 +21,9 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
                         val radiusKm: Int = 100, val beaconEnabled: Boolean = false,
                         val beaconIntervalMillis: Long = 120_000,
                         val application: String = "APRSERJa", val filterMode: String = "range", val customFilter: String = "",
-                        val fallbackServers: List<AprsEndpoint> = emptyList()) {
+                        val fallbackServers: List<AprsEndpoint> = emptyList(), val applicationVersion: String = "0.1") {
     init {
-        AprsProtocol.login(callsign, passcode, AprsFilters.compose(callsign, latitude, longitude, radiusKm, filterMode, customFilter), application)
+        AprsProtocol.login(callsign, passcode, AprsFilters.compose(callsign, latitude, longitude, radiusKm, filterMode, customFilter), application, applicationVersion)
         require(host.isNotBlank() && host.length <= 253 && host.all { it.isLetterOrDigit() || it in ".-:" })
         require(port in 1..65535)
         require(fallbackServers.size<=16)
@@ -156,7 +156,7 @@ class AprsIsClient : AprsMessageTransport {
                 serverMessage(banner!!)
                 output.writeStringUtf8(AprsProtocol.login(config.callsign, config.passcode,
                     AprsFilters.compose(config.callsign, config.latitude, config.longitude, config.radiusKm, config.filterMode, config.customFilter),
-                    config.application))
+                    config.application, config.applicationVersion))
                 mutableState.value = AprsConnectionState.RECEIVING
                 val verified = MutableStateFlow(false)
                 val sessionSender = Sender(config.callsign) { packet ->
