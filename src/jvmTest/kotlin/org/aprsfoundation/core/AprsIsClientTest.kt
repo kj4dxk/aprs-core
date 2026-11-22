@@ -21,6 +21,7 @@ class AprsIsClientTest {
                     writer.write("# loopback test\r\n"); writer.flush()
                     login.complete(socket.getInputStream().bufferedReader().readLine())
                     writer.write("# logresp N0CALL unverified, server TEST\r\n")
+                    writer.write("# diagnostic pass 12345\r\n")
                     writer.write("N1CALL>APRS:!4903.50N/07201.75W>test\r\n"); writer.flush()
                     Thread.sleep(2500)
                 }
@@ -31,6 +32,8 @@ class AprsIsClientTest {
                     latitude = 49.0, longitude = -72.0))
                 val stations = withTimeout(5000) { client.stations.first { it.isNotEmpty() } }
                 assertEquals("N1CALL", stations.single().callsign)
+                assertTrue(client.serverMessages.value.contains("# loopback test"))
+                assertTrue(client.serverMessages.value.contains("# diagnostic pass [redacted]"))
                 assertTrue(login.get(1, TimeUnit.SECONDS).contains("pass -1"))
             } finally { client.stop(); peer.join(4000) }
             assertEquals(AprsConnectionState.STOPPED, client.state.value)
