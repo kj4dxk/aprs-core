@@ -5,7 +5,7 @@ data class AprsEndpoint(val host: String, val port: Int = 14580) {
         /** Plain TCP endpoints only: a host, host:port, tcp://host:port or aprs://host:port. */
         fun parse(address: String, defaultPort: Int = 14580): AprsEndpoint {
             val value = address.trim()
-            val match = Regex("^(?:(?:tcp|aprs)://)?(\\[[0-9a-fA-F:]+\\]|[a-zA-Z0-9][a-zA-Z0-9.-]*)(?::([0-9]{1,5}))?/?$",
+            val match = Regex("^(?:(?:tcp|aprs)://)?(\\[[0-9a-fA-F:]+(?:%[0-9]{1,10})?\\]|[a-zA-Z0-9][a-zA-Z0-9.-]*)(?::([0-9]{1,5}))?/?$",
                 RegexOption.IGNORE_CASE).matchEntire(value) ?: throw IllegalArgumentException("Invalid TCP endpoint")
             val host = match.groupValues[1].removePrefix("[").removeSuffix("]").lowercase()
             if (match.groupValues[1].startsWith('[')) require(':' in host)

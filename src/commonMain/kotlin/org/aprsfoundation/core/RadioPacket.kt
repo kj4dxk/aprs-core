@@ -62,12 +62,13 @@ object Ax25Ui {
         require(addresses.size>=2 && offset+2<bytes.size && bytes[offset].toInt()==3 && bytes[offset+1].toInt() and 255==240)
         val payload=bytes.drop(offset+2).map {(it.toInt() and 255).toChar()}.joinToString("")
         require(payload.length<=256)
-        RadioPacket.parse(RadioPacket(addresses[1],addresses[0],addresses.drop(2),payload).line()) ?: error("Invalid payload")
+        RadioPacket.parse(RadioPacket(addresses[1],addresses[0],addresses.drop(2),payload).line(), receiveOnly = true) ?: error("Invalid payload")
     }.getOrNull()
 }
 
 /** Stateful stream decoder tolerates split frames and discards oversized or malformed frames. */
 class KissDecoder(private val channel: Int = 0) {
+    var hardwareResponse: ((ByteArray) -> Unit)? = null
     private val buffer=mutableListOf<Byte>();private var escaped=false;private var discard=true
     init {require(channel in 0..15)}
     fun accept(bytes: ByteArray): List<RadioPacket> = buildList {
@@ -75,6 +76,8 @@ class KissDecoder(private val channel: Int = 0) {
             if(value==192) {
                 if(!discard && !escaped && buffer.isNotEmpty() && (buffer[0].toInt() and 255)==(channel shl 4))
                     Ax25Ui.decode(buffer.drop(1).toByteArray())?.let {add(it)}
+                if (!discard && !escaped && buffer.firstOrNull()?.toInt()?.and(255) == ((channel shl 4) or 6))
+                    hardwareResponse?.invoke(buffer.drop(1).toByteArray())
                 buffer.clear();escaped=false;discard=false
             } else if(!discard) {
                 if(escaped) {when(value) {220->buffer.add(192.toByte());221->buffer.add(219.toByte());else->discard=true};escaped=false}
@@ -105,7 +108,7 @@ object Agw {
         for(i in 0..3) header[28+i]=(data.size ushr (i*8)).toByte()
         return header+data
     }
-    fun packet(port: Int, packet: RadioPacket)=encode(port,'K',byteArrayOf(0)+Ax25Ui.encode(packet))
+    fun packet(port: Int, packet: RadioPacket)=encode(port,'K',byteArrayOf((port shl 4).toByte())+Ax25Ui.encode(packet))
 }
 class AgwDecoder {
     private var pending=byteArrayOf()
