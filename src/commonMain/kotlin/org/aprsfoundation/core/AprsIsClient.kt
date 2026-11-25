@@ -37,8 +37,15 @@ data class AprsIsConfig(val callsign: String, val passcode: String = "-1",
 
 enum class AprsConnectionState { STOPPED, CONNECTING, RECEIVING, VERIFIED, RECONNECTING }
 
+interface AprsIsConnection : AutoCloseable {
+    suspend fun readLine(limit: Int): String?
+    suspend fun write(text: String)
+}
+
 /** APRS-IS transport shared by Android and future iOS clients. No connection until start(). */
-class AprsIsClient : AprsMessageTransport {
+class AprsIsClient(
+    private val connect: suspend (AprsEndpoint) -> AprsIsConnection = ::openAprsIsConnection
+) : AprsMessageTransport {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutableState = MutableStateFlow(AprsConnectionState.STOPPED)
     val state: StateFlow<AprsConnectionState> = mutableState
@@ -142,19 +149,13 @@ class AprsIsClient : AprsMessageTransport {
     }
 
     private suspend fun session(config: AprsIsConfig, store: AprsStationStore, policy: AprsBeaconPolicy) = coroutineScope {
-        val selector = SelectorManager(Dispatchers.Default)
+        val socket = withTimeout(20_000) { connect(AprsEndpoint(config.host,config.port)) }
         try {
-            val socket = withTimeout(20_000) {
-                aSocket(selector).tcp().connect(config.host, config.port) { noDelay = true }
-            }
-            try {
-                val input = socket.openReadChannel()
-                val output = socket.openWriteChannel(autoFlush = true)
                 val writeLock = Mutex()
-                val banner = withTimeout(20_000) { input.readUTF8Line(512) }
+                val banner = withTimeout(20_000) { socket.readLine(512) }
                 check(banner?.startsWith("#") == true)
                 serverMessage(banner!!)
-                output.writeStringUtf8(AprsProtocol.login(config.callsign, config.passcode,
+                socket.write(AprsProtocol.login(config.callsign, config.passcode,
                     AprsFilters.compose(config.callsign, config.latitude, config.longitude, config.radiusKm, config.filterMode, config.customFilter),
                     config.application, config.applicationVersion))
                 mutableState.value = AprsConnectionState.RECEIVING
@@ -162,7 +163,7 @@ class AprsIsClient : AprsMessageTransport {
                 val sessionSender = Sender(config.callsign) { packet ->
                     writeLock.withLock {
                         check(verified.value && isActive) { "Verified login required" }
-                        output.writeStringUtf8(packet)
+                        socket.write(packet)
                     }
                 }
                 sender.value = sessionSender
@@ -175,7 +176,7 @@ class AprsIsClient : AprsMessageTransport {
                         val currentFix = fix.value
                         if (policy.due(currentFix, now, config.beaconEnabled, verified.value)) {
                             writeLock.withLock {
-                                output.writeStringUtf8(AprsProtocol.beacon(config.callsign, currentFix!!, config.application))
+                                socket.write(AprsProtocol.beacon(config.callsign, currentFix!!, config.application))
                             }
                             policy.sent(now)
                         }
@@ -183,7 +184,7 @@ class AprsIsClient : AprsMessageTransport {
                 }
                 try {
                     while (isActive) {
-                        val line = withTimeout(120_000) { input.readUTF8Line(512) } ?: break
+                        val line = withTimeout(120_000) { socket.readLine(512) } ?: break
                         if (line.startsWith("#")) {
                             serverMessage(line)
                             if (line.contains("logresp", ignoreCase = true)) {
@@ -201,7 +202,28 @@ class AprsIsClient : AprsMessageTransport {
                     if (sender.value === sessionSender) sender.value = null
                     ticker.cancelAndJoin()
                 }
-            } finally { socket.close() }
-        } finally { selector.close() }
+        } finally { socket.close() }
+    }
+}
+
+private suspend fun openAprsIsConnection(endpoint: AprsEndpoint): AprsIsConnection {
+    val selector = SelectorManager(Dispatchers.Default)
+    try {
+        val socket = aSocket(selector).tcp().connect(endpoint.host, endpoint.port) { noDelay = true }
+        try {
+            val input = socket.openReadChannel()
+            val output = socket.openWriteChannel(autoFlush = true)
+            return object : AprsIsConnection {
+                override suspend fun readLine(limit: Int) = input.readUTF8Line(limit)
+                override suspend fun write(text: String) { output.writeStringUtf8(text) }
+                override fun close() { try { socket.close() } finally { selector.close() } }
+            }
+        } catch (failure: Throwable) {
+            socket.close()
+            throw failure
+        }
+    } catch (failure: Throwable) {
+        selector.close()
+        throw failure
     }
 }
