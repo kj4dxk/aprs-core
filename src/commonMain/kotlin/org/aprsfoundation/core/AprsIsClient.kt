@@ -81,6 +81,8 @@ class AprsIsClient(
     }
 
     fun updateFix(value: AprsFix) { fix.value = value }
+    /** Optional live receive filter. Read-only logins may also change their filter. */
+    val receiveFilter = MutableStateFlow<String?>(null)
 
     /** Send a formatted report on the current verified connection, never a saved offline beacon. */
     suspend fun sendBroadcast(account: String, packet: String) {
@@ -169,8 +171,15 @@ class AprsIsClient(
                 sender.value = sessionSender
                 val storeLock = Mutex()
                 val ticker = launch {
+                    val loginFilter=AprsFilters.compose(config.callsign, config.latitude, config.longitude, config.radiusKm, config.filterMode, config.customFilter)
+                    var previousFilter=loginFilter
                     while (isActive) {
                         delay(1000)
+                        val desired=receiveFilter.value ?: loginFilter
+                        if(desired!=previousFilter && desired.length in 1..AprsFilters.MAX_FILTER_LENGTH && desired.all {it.code in 32..126}) {
+                            writeLock.withLock { socket.write("#filter "+desired+"\r\n") }
+                            previousFilter=desired
+                        }
                         val now = Clock.System.now().toEpochMilliseconds()
                         mutableStations.value = storeLock.withLock { store.snapshot(now) }
                         val currentFix = fix.value

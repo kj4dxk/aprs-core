@@ -15,19 +15,23 @@ class AprsIsClientTest {
         ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { server ->
             server.soTimeout = 5000
             val login = CompletableFuture<String>()
+            val liveFilter = CompletableFuture<String>()
             val peer = thread(isDaemon = true) {
                 server.accept().use { socket ->
                     val writer = socket.getOutputStream().bufferedWriter()
                     writer.write("# loopback test\r\n"); writer.flush()
-                    login.complete(socket.getInputStream().bufferedReader().readLine())
+                    val reader=socket.getInputStream().bufferedReader()
+                    login.complete(reader.readLine())
                     writer.write("# logresp N0CALL unverified, server TEST\r\n")
                     writer.write("# diagnostic pass 12345\r\n")
                     writer.write("N1CALL>APRS:!4903.50N/07201.75W>test\r\n"); writer.flush()
-                    Thread.sleep(2500)
+                    socket.soTimeout=5000
+                    liveFilter.complete(reader.readLine())
                 }
             }
             val client = AprsIsClient()
             try {
+                client.receiveFilter.value="g/N0CALL b/N1CALL/N1CALL-*"
                 client.start(AprsIsConfig("N0CALL", host = "127.0.0.1", port = server.localPort,
                     latitude = 49.0, longitude = -72.0))
                 val stations = withTimeout(5000) { client.stations.first { it.isNotEmpty() } }
@@ -35,6 +39,8 @@ class AprsIsClientTest {
                 assertTrue(client.serverMessages.value.contains("# loopback test"))
                 assertTrue(client.serverMessages.value.contains("# diagnostic pass [redacted]"))
                 assertTrue(login.get(1, TimeUnit.SECONDS).contains("pass -1"))
+                assertEquals("#filter g/N0CALL b/N1CALL/N1CALL-*",liveFilter.get(5,TimeUnit.SECONDS))
+                assertFalse(client.canSend())
             } finally { client.stop(); peer.join(4000) }
             assertEquals(AprsConnectionState.STOPPED, client.state.value)
         }

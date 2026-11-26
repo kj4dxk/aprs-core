@@ -22,7 +22,8 @@ interface ChatSqlRow {
 }
 
 data class ChatRow(val id: Long, val peer: String, val body: String, val outgoing: Boolean,
-                   val time: Long, val status: String, val unread: Boolean, val attempts: Int)
+                   val time: Long, val status: String, val unread: Boolean, val attempts: Int,
+                   val multipartId:Long=0, val wireId:String="")
 data class ChatOptions(val route: String = "best", val requestAck: Boolean = true)
 
 /** An existing message imported from a platform's previous chat store. */
@@ -49,6 +50,7 @@ open class ChatStore(
             sql.execute("CREATE INDEX IF NOT EXISTS conversation ON messages(account,peer,time,id)")
             sql.execute("CREATE INDEX IF NOT EXISTS outbox ON messages(account,outgoing,status)")
             val columns = sql.query("PRAGMA table_info(messages)", emptyList()) { it.text(1) }
+            if ("multipart_id" !in columns) sql.execute("ALTER TABLE messages ADD COLUMN multipart_id INTEGER NOT NULL DEFAULT 0")
             if ("route" !in columns) sql.execute("ALTER TABLE messages ADD COLUMN route TEXT NOT NULL DEFAULT 'best'")
             if ("request_ack" !in columns) sql.execute("ALTER TABLE messages ADD COLUMN request_ack INTEGER NOT NULL DEFAULT 1")
             if ("retry_at" !in columns) sql.execute("ALTER TABLE messages ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0")
@@ -63,6 +65,26 @@ open class ChatStore(
     private fun changed() { changes.value++ }
     private fun has(sqlText: String, vararg values: Any?): Boolean =
         sql.query(sqlText, values.toList()) { true }.isNotEmpty()
+    private fun nextGroup()=sql.query("SELECT COALESCE(MAX(id),0)+1 FROM messages",emptyList()){it.number(0)}.single()
+    private val wirePart=Regex("J[0-9A-Z]{3}[1-5]")
+    private val numberedPart=Regex("^\\(([1-5])/([2-5])\\) ")
+    private fun incomingGroup(account:String,m:AprsMessage,time:Long):Long {
+        val wire=m.id?.takeIf(wirePart::matches) ?: return 0
+        val match=numberedPart.find(m.text) ?: return 0
+        val index=match.groupValues[1].single()
+        val total=match.groupValues[2].single()
+        if(index!=wire.last() || index>total)return 0
+        val args=listOf(account,m.sender,wire.take(4)+"%",time-86_400_000)
+        val existing=sql.query("SELECT multipart_id,wire_id,body FROM messages WHERE account=? AND peer=? AND outgoing=0 AND wire_id LIKE ? AND time>=?",args){
+            Triple(it.number(0),it.text(1),it.text(2))
+        }
+        if(existing.isEmpty())return nextGroup()
+        val group=existing.first().first
+        if(group!=0L && existing.all {(id,old,body)->id==group && old!=wire && body.startsWith("("+old.last()+"/"+total+") ")})return group
+        // Conflicting segments invalidate the earlier association too; preserve all raw messages.
+        if(group!=0L)sql.execute("UPDATE messages SET multipart_id=0 WHERE multipart_id=?",group)
+        return 0L
+    }
 
     private fun optionsNow(account: String, peer: String): ChatOptions =
         sql.query("SELECT route,request_ack FROM conversations WHERE account=? AND peer=?", listOf(account, peer)) {
@@ -80,20 +102,27 @@ open class ChatStore(
 
     suspend fun enqueue(account: String, peer: String, text: String) = enqueueParts(account, peer, AprsMessages.split(text))
 
-    suspend fun enqueueParts(account: String, peer: String, parts: List<String>) = access {
+    suspend fun enqueueParts(account: String, peer: String, parts: List<String>, internetOnly:Boolean=false) = access {
         require(AprsProtocol.validCallsign(account) && AprsProtocol.validCallsign(peer) && account != peer)
         require(parts.isNotEmpty() && parts.size <= 40 && parts.all(AprsMessages::validText))
-        val options = optionsNow(account, peer)
+        val savedOptions = optionsNow(account, peer)
+        val options = if(internetOnly) savedOptions.copy(route="is") else savedOptions
         val time = now()
         sql.transaction {
-            for (part in parts) {
+            val numbered=parts.size>1 && parts.withIndex().all {(i,part)->part.startsWith("("+(i+1)+"/"+parts.size+") ")}
+            val group=if(numbered)nextGroup() else 0L
+            var prefix=""
+            if(numbered && parts.size<=5) do {
+                prefix="J"+Random.nextInt(46656).toString(36).uppercase().padStart(3,'0')
+            }while(has("SELECT 1 FROM messages WHERE account=? AND peer=? AND outgoing=1 AND wire_id LIKE ? AND time>=? LIMIT 1",account,peer,prefix+"%",time-86_400_000))
+            for ((index,part) in parts.withIndex()) {
                 var wire: String
-                do {
+                if(prefix.isNotEmpty())wire=prefix+(index+1) else do {
                     wire = Random.nextInt(0x100000).toString(16).padStart(5, '0').uppercase()
                 } while (has("SELECT 1 FROM messages WHERE account=? AND peer=? AND outgoing=1 AND wire_id=? AND time>? LIMIT 1",
                         account, peer, wire, time - 86_400_000))
-                sql.execute("INSERT INTO messages(account,peer,body,outgoing,wire_id,time,status,route,request_ack) VALUES(?,?,?,1,?,?,'QUEUED',?,?)",
-                    account, peer, part, wire, time, options.route, if (options.requestAck) 1 else 0)
+                sql.execute("INSERT INTO messages(account,peer,body,outgoing,wire_id,time,status,route,request_ack,multipart_id) VALUES(?,?,?,1,?,?,'QUEUED',?,?,?)",
+                    account, peer, part, wire, time, options.route, if (options.requestAck) 1 else 0, group)
             }
         }
         changed()
@@ -125,8 +154,8 @@ open class ChatStore(
             if (message.acknowledgement == null) {
                 val duplicate = message.id != null && has("SELECT 1 FROM messages WHERE account=? AND peer=? AND outgoing=0 AND wire_id=? AND body=? AND time>? LIMIT 1",
                     account, message.sender, message.id, message.text, time - 86_400_000)
-                if (!duplicate) sql.execute("INSERT INTO messages(account,peer,body,outgoing,wire_id,time,status,unread) VALUES(?,?,?,0,?,?,'RECEIVED',1)",
-                    account, message.sender, message.text, message.id, time)
+                if (!duplicate) sql.execute("INSERT INTO messages(account,peer,body,outgoing,wire_id,time,status,unread,multipart_id) VALUES(?,?,?,0,?,?,'RECEIVED',1,?)",
+                    account, message.sender, message.text, message.id, time,incomingGroup(account,message,time))
             }
         }
         changed()
@@ -161,15 +190,26 @@ open class ChatStore(
 
     suspend fun rows(account: String, peer: String? = null): List<ChatRow> = access {
         val peerFilter = if (peer == null) "" else " AND peer=?"
-        sql.query("SELECT id,peer,body,outgoing,time,status,unread,attempts FROM messages WHERE account=?$peerFilter ORDER BY time,id",
+        sql.query("SELECT id,peer,body,outgoing,time,status,unread,attempts,multipart_id,COALESCE(wire_id,'') FROM messages WHERE account=?$peerFilter ORDER BY time,id",
             listOfNotNull(account, peer)) {
             ChatRow(it.number(0), it.text(1), it.text(2), it.number(3) == 1L, it.number(4),
-                it.text(5), it.number(6) == 1L, it.number(7).toInt())
+                it.text(5), it.number(6) == 1L, it.number(7).toInt(), it.number(8), it.text(9))
         }
     }
 
     suspend fun markRead(account: String, peer: String) = access {
         if (sql.execute("UPDATE messages SET unread=0 WHERE account=? AND peer=? AND unread=1", account, peer) > 0) changed()
+    }
+    suspend fun markDisplayed(account:String,peer:String,ids:List<Long>)=access {
+        if(ids.isEmpty())return@access
+        val affected=sql.transaction {
+            ids.distinct().chunked(200).sumOf {chunk->
+                val placeholders=chunk.joinToString(","){"?"}
+                sql.execute("UPDATE messages SET unread=0 WHERE account=? AND peer=? AND unread=1 AND id IN ("+placeholders+")",
+                    account,peer,*chunk.toTypedArray())
+            }
+        }
+        if(affected>0)changed()
     }
 
     suspend fun requeuePending(account: String, peer: String): Int = access {
